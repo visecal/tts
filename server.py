@@ -4,6 +4,7 @@ from flask import after_this_request, Flask, request, send_file, jsonify, Respon
 from gevent.pywsgi import WSGIServer
 from dotenv import load_dotenv
 import os
+import sys
 import traceback
 import json
 import base64
@@ -320,5 +321,16 @@ print(f" * TTS Endpoint: http://localhost:{PORT}/v1/audio/speech")
 print(f" ")
 
 if __name__ == '__main__':
-    http_server = WSGIServer(('0.0.0.0', PORT), app)
-    http_server.serve_forever()
+    try:
+        http_server = WSGIServer(('0.0.0.0', PORT), app)
+        http_server.serve_forever()
+    except OSError as exc:
+        binding_hint = ""
+        win_error = getattr(exc, "winerror", None)
+        if win_error == 10048 or exc.errno in (98, 48):
+            binding_hint = (
+                f" Another process is already using port {PORT}. "
+                "Stop the conflicting service or set a different PORT environment variable."
+            )
+        print(f"Failed to start server on port {PORT}: {exc}.{binding_hint}")
+        sys.exit(1)

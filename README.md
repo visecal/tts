@@ -211,6 +211,9 @@ python app/server.py
 
 The server will start running at `http://localhost:5050`.
 
+> ⚠️ **Port already in use**: If you see `Only one usage of each socket address` (WinError 10048) or a similar binding error,
+> stop the other process using port 5050 or set a different port via `PORT=<new_port>` in your environment before launching the server.
+
 ### 6. Test the API
 
 You can now interact with the API at `http://localhost:5050/v1/audio/speech` and other available endpoints. See the [Usage](#usage) section for request examples.
