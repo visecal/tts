@@ -12,8 +12,8 @@ DEFAULT_CONFIGS = {
     "DEFAULT_LANGUAGE": 'en-US',
 
     # Feature flags
-    "REQUIRE_API_KEY": True,
+    "REQUIRE_API_KEY": False,
     "REMOVE_FILTER": False,
     "EXPAND_API": True,
     "DETAILED_ERROR_LOGGING": True,
-} 
+}
