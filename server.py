@@ -225,15 +225,13 @@ def subtitles_to_speech():
             pass
         return response
 
-    response = send_file(
+    return send_file(
         zip_path,
         mimetype='application/zip',
         as_attachment=True,
         download_name='subtitle_audio.zip',
+        headers={"X-Clip-Count": str(clip_count), "X-Max-Workers": str(max_workers)},
     )
-    response.headers["X-Clip-Count"] = str(clip_count)
-    response.headers["X-Max-Workers"] = str(max_workers)
-    return response
 
 """
 Support for ElevenLabs and Azure AI Speech
