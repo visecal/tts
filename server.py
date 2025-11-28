@@ -1,15 +1,17 @@
 # server.py
 
-from flask import Flask, request, send_file, jsonify, Response
+from flask import after_this_request, Flask, request, send_file, jsonify, Response
 from gevent.pywsgi import WSGIServer
 from dotenv import load_dotenv
 import os
+import sys
 import traceback
 import json
 import base64
 
 from config import DEFAULT_CONFIGS
 from handle_text import prepare_tts_input_with_context
+from subtitle_handler import DEFAULT_WORKERS, parse_srt_content, render_subtitles_to_zip
 from tts_handler import generate_speech, generate_speech_stream, get_models_formatted, get_voices, get_voices_formatted
 from utils import getenv_bool, require_api_key, AUDIO_FORMAT_MIME_TYPES, DETAILED_ERROR_LOGGING
 
@@ -170,6 +172,67 @@ def list_voices():
 def list_all_voices():
     return jsonify({"voices": get_voices('all')})
 
+
+@app.route('/v1/subtitles/tts', methods=['POST'])
+@app.route('/subtitles/tts', methods=['POST'])
+def subtitles_to_speech():
+    """Generate audio clips for every subtitle line concurrently and return a zip archive."""
+
+    # Accept SRT content via multipart file upload or JSON payload
+    srt_content = None
+    if 'file' in request.files:
+        srt_content = request.files['file'].read().decode('utf-8')
+    elif request.is_json:
+        payload = request.get_json(force=True, silent=True) or {}
+        srt_content = payload.get('srt')
+    else:
+        srt_content = request.form.get('srt')
+
+    if not srt_content:
+        return jsonify({"error": "No SRT content provided. Send a file upload or an 'srt' field."}), 400
+
+    try:
+        subtitles = parse_srt_content(srt_content)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to parse SRT: {exc}"}), 400
+
+    if not subtitles:
+        return jsonify({"error": "No subtitles found in the provided SRT."}), 400
+
+    voice = request.values.get('voice', DEFAULT_VOICE)
+    response_format = request.values.get('response_format', DEFAULT_RESPONSE_FORMAT)
+    speed = float(request.values.get('speed', DEFAULT_SPEED))
+    sanitize_text = request.values.get('sanitize', str(not REMOVE_FILTER)).lower() in ("1", "true", "yes")
+    max_workers = int(request.values.get('max_workers', DEFAULT_WORKERS))
+
+    try:
+        zip_path, clip_count = render_subtitles_to_zip(
+            subtitles,
+            voice,
+            response_format,
+            speed,
+            sanitize_text=sanitize_text,
+            max_workers=max_workers,
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Subtitle rendering failed: {exc}"}), 500
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.unlink(zip_path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(
+        zip_path,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name='subtitle_audio.zip',
+        headers={"X-Clip-Count": str(clip_count), "X-Max-Workers": str(max_workers)},
+    )
+
 """
 Support for ElevenLabs and Azure AI Speech
     (currently in beta)
@@ -258,5 +321,16 @@ print(f" * TTS Endpoint: http://localhost:{PORT}/v1/audio/speech")
 print(f" ")
 
 if __name__ == '__main__':
-    http_server = WSGIServer(('0.0.0.0', PORT), app)
-    http_server.serve_forever()
+    try:
+        http_server = WSGIServer(('0.0.0.0', PORT), app)
+        http_server.serve_forever()
+    except OSError as exc:
+        binding_hint = ""
+        win_error = getattr(exc, "winerror", None)
+        if win_error == 10048 or exc.errno in (98, 48):
+            binding_hint = (
+                f" Another process is already using port {PORT}. "
+                "Stop the conflicting service or set a different PORT environment variable."
+            )
+        print(f"Failed to start server on port {PORT}: {exc}.{binding_hint}")
+        sys.exit(1)
