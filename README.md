@@ -24,6 +24,8 @@ This project provides a local, OpenAI-compatible text-to-speech (TTS) API using 
 - **Flexible Formats**: Supports multiple audio formats (mp3, opus, aac, flac, wav, pcm).
 - **Adjustable Speed**: Option to modify playback speed (0.25x to 4.0x).
 - **Optional Direct Edge-TTS Voice Selection**: Use either OpenAI voice mappings or specify [any edge-tts voice](https://tts.travisvn.com) directly.
+- **Parallel Subtitle Rendering**: Upload `.srt` files to `/v1/subtitles/tts` and receive a zip of per-line clips, rendered concurrently for speed.
+- **Desktop Helper App**: `subtitle_tts_app.py` provides a small Tk GUI to pick an SRT, choose a voice/model, and call the API without coding.
 
 ## ⚡️ Quick start
 
@@ -71,6 +73,8 @@ REMOVE_FILTER=False
 EXPAND_API=True
 DETAILED_ERROR_LOGGING=True
 ```
+
+> ℹ️ API keys are disabled by default in this build (`REQUIRE_API_KEY=False`). Set `API_KEY` and flip `REQUIRE_API_KEY` to `True` if you need to gate the endpoints.
 
 Or, copy the default `.env.example` with the following:
 
@@ -323,6 +327,45 @@ data: {"type": "speech.audio.delta", "audio": "base64-encoded-audio-chunk"}
 data: {"type": "speech.audio.done", "usage": {"input_tokens": 12, "output_tokens": 0, "total_tokens": 12}}
 ```
 
+#### Subtitle batch endpoint
+
+Use `/v1/subtitles/tts` (alias `/subtitles/tts`) to process an entire `.srt` file in parallel. The endpoint returns a `.zip` that contains one audio clip per subtitle line (`0001.mp3`, `0002.mp3`, ...). API keys are off by default, so you can call it without authentication.
+
+**Payload options**
+
+- `file` (multipart) or `srt` (raw text): subtitle content.
+- `voice` (optional): defaults to `DEFAULT_VOICE`.
+- `response_format` (optional): `mp3`, `wav`, `opus`, `aac`, or `flac`.
+- `speed` (optional): playback multiplier (e.g., `0.9`, `1.1`).
+- `sanitize` (optional): `true`/`false` to enable Markdown/emoji cleanup (default mirrors `REMOVE_FILTER`).
+- `max_workers` (optional): thread pool size for parallel rendering (defaults to `SUBTITLE_WORKERS` env var or CPU count).
+
+**Example (file upload):**
+
+```bash
+curl -X POST http://localhost:5050/v1/subtitles/tts \
+  -F "file=@movie.srt" \
+  -F "voice=en-US-AriaNeural" \
+  -F "response_format=mp3" \
+  -o subtitle_audio.zip
+```
+
+**Example (JSON body):**
+
+```bash
+curl -X POST http://localhost:5050/v1/subtitles/tts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "srt": "1\n00:00:00,000 --> 00:00:02,000\nHello there!\n\n2\n00:00:02,500 --> 00:00:03,500\nWelcome to the demo.",
+    "voice": "alloy",
+    "response_format": "wav",
+    "speed": 1.1
+  }' \
+  -o subtitle_audio.zip
+```
+
+Response headers include `X-Clip-Count` (rendered lines) and `X-Max-Workers` (thread pool size).
+
 #### JavaScript/Web Usage
 
 Example using fetch API for SSE streaming:
@@ -530,6 +573,18 @@ Open up settings and go to Voice & Speech (Under AI Providers)
 Below, you can see a screenshot of the correct configuration for using this project to substitute the OpenAI endpoint
 
 ![Screenshot of AnythingLLM settings for Voice adding the correct endpoints for this project](https://utfs.io/f/MMMHiQ1TQaBoGx6WUTRDJUWPLqoMsXiNkajAdVOwgcxH6uv7)
+
+---
+
+## Desktop subtitle helper
+
+If you prefer a point-and-click workflow, run the Tkinter app in this repo:
+
+```bash
+python subtitle_tts_app.py
+```
+
+The window lets you pick an `.srt` file, choose a voice/model/format/speed, set worker count, and download the returned `subtitle_audio.zip` bundle. The app calls the `/v1/models`, `/v1/audio/voices`, and `/v1/subtitles/tts` endpoints; no API key is required by default.
 
 ---
 
